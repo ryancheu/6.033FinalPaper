@@ -8,6 +8,13 @@
 \usepackage{verbatim}
 \usepackage{fancyvrb}
 \usepackage{fullpage}
+\usepackage{caption}
+  \captionsetup{figurename={Figure\ }}
+  \DeclareCaptionLabelSeparator{boldperiod}{\textbf{.} }
+  \DeclareCaptionFormat{mysmallcaption}{{\footnotesize #1#2#3\par}}
+  \DeclareCaptionLabelFormat{bf}{{\rm \bf #1#2}}
+  \captionsetup{labelsep=boldperiod,labelformat=bf,format=mysmallcaption}
+
 
 \title{Placr}
 \author{Ryan Cheu (ryancheu@mit.edu), David Kang(wkang@mit.edu), Ben Zinberg (bzinberg@mit.edu)}
@@ -24,50 +31,45 @@
 
 This report outlines the design for Placr, a system for controlling the placement of virtual machines (VMs) in a data center.  Our goal with Placr is to create a solution for public data center users that minimizes both the time and cost of a computing job.  The system will be able to adapt to changing conditions created both by other users of the data center and by varying data transfer rates of user VMs.
 
-We assume that the data center charges the user a fixed monetary cost per minute of use for each VM.  Rather than strictly minimizing job completion time or strictly minimizing total cost, Placr aims to simultaneously achieve near-minimal time and near-minimal cost.  To achieve this, Placr tries to maximize the aggregate throughput between all VMs at each moment.
+We assume that the data center charges the user a fixed monetary cost per minute of use for each VM.  Rather than strictly minimizing job completion time or strictly minimizing total cost, Placr aims to simultaneously achieve near-minimal time and near-minimal cost.  To achieve this, Placr tries to maximize the instantaneous throughput between all VMs at each moment.
 
-	Placr has two components: measurement and placement.  Measurement is mediated by periodic data transfer reports which are sent from each VM to a central machine.  Once the reports are obtained, a combination of graph clustering algorithms and fast paced hill-climbing algorithms determine placement. Graph clustering algorithms will place VMs such that they are close to an optimal configuration and respond to macro scale events such as large changes in occupancy.  Hill-climbing algorithms will provide quick responses to changing data transfer requirements.
+Placr has two components: measurement and placement.  Measurement is mediated by periodic data transfer reports which are sent from each VM to a central machine.  Once the reports are obtained, a combination of a graph clustering algorithm and a fast paced hill-climbing algorithm determine placement. Graph clustering algorithms will place VMs such that they are close to an optimal configuration and respond to macro scale events such as large changes in occupancy.  Hill-climbing algorithms will provide quick responses to changing data transfer requirements.
 
 \section{Design}
 
-In this section we’ll cover the design of Placr.  We’ll start with the assumptions we made during the design, then cover some of the tradeoffs we considered, and finally move on to describing the final design.
-
+In this section we'll cover the design of Placr.  We'll start with the assumptions we made during the design, then cover some of the trade-offs we considered, and finally move on to describing the final design.
 
 \subsection{Assumptions and Definitions}
-
 Before discussing the heart of the design, we lay out a few important assumptions of our model:
-\vspace{-4mm}
-\begin{itemize}
-  \item 
-Movement of VMs within the data center is “free”: the time taken to move a VM and data usage is negligible.
-  \item Data transfer between machines in the same group was just as fast as data transfer between VMs on the same machine.
-\end{itemize}
-
+\begin{enumerate}[noitemsep]
+  \item Movement of VMs within the data center is ``free'': the time taken to move a VM and data usage is negligible.
+  \item Data transfer between machines in the same group is just as fast as data transfer between VMs on the same machine.
+\end{enumerate}
 We also make the following definition:
-\vspace{-4mm}
 \begin{itemize}
-  \item 
-A slot is one of the four VM locations within a physical machine.  In other words, a slot is a space into which a VM can be placed.  Each slot has its own IP address.  A VM can be moved to a new slot using the place() API call.
+  \item A {\em slot} is one of the four VM locations within a physical machine.  In other words, a slot is a space into which a VM can be placed.  Each slot has its own IP address.  A VM can be moved to a new slot using the {\tt place()} API call.
 \end{itemize}
 
-\subsection{Trade-offs and Alternatives}
+\subsection{Trade-offs and Alternatives}\label{sec:tradeoffs}
 
 There were several important trade-offs to consider in the design of Placr.  We now detail two such trade-offs, and the reasoning behind our decisions.
 
 \subsubsection{Disjoint jobs: in parallel or in series?}
 
-There may be cases in which the traffic pattern of our job consists of two sets of virtual machines, each of which is densely connected internally, but such that the two groups have minimal communication with each other.  To first-order approximation, this topology is really two disjoint jobs (see Figure ??).  Should we run these two jobs in parallel, or in series?  The advantage to running in series is that we can “hold on to” our slots in the fastest part of the data center network, and thus achieve low cost.  However, the time taken is nearly twice as long as running in parallel, and the cost savings are not large enough to make up for this increased time.  Also, the fastest part of the data center at one moment may not still be fast a few minutes later.  For these reasons, our system will run the jobs in parallel.  More generally, if there is space for all of our VMs to run at the same time, then our system will always run all of our VMs at the same time.  This favoring of parallelism serves our overall goal:
+Consider a traffic pattern consisting of two disjoint sets of virtual machines.  Suppose each set is densely connected internally, but that there is minimal communication between the two sets (see Figure \ref{fig:disjoint-jobs}).  To first-order approximation, this pattern is really two disjoint jobs.  Should we run these two jobs in parallel, or in series?  The advantage to running in series is that we can ``hold on to'' our slots in the fastest part of the data center network, and thus achieve low cost.  However, the time taken is nearly twice as long as running in parallel, and the cost savings are not large enough to make up for this increased time.  For these reasons, our system will run the jobs in parallel.  More generally, if there is space for all of our VMs to run at the same time, then our system will always run all of our VMs at the same time.  Favoring parallelism serves our overall goal:
 
-\textit{Simultaneously near-minimal time and near-minimal cost.}
-
+\begin{quote}
+Simultaneously near-minimal time and near-minimal cost.
+\end{quote}
 We are willing to take the slight cost penalty of parallelism in exchange for a much improved job finishing time.  However, we would not be willing to take parallelism to the extreme, e.g., running a copy of each VM in two different clusters to decrease the time lost due to stragglers, since this would double the cost.
 
-\begin{figure}[h!]
+\begin{figure}[h]
   \centering
 \includegraphics[scale=0.65]{disjointjobs.png}
 
- \caption{ An application that consists of two disjoint jobs.  The vertices represent VMs, and the edges represent communication between VMs within the application.  If we were to run the jobs in series rather than in parallel, the cost might be slightly lower but the time required would be twice as long.}
+ \caption{An application that consists of two disjoint jobs.  The vertices represent VMs, and the edges represent communication between VMs within the application.  If we were to run the jobs in series rather than in parallel, the cost might be slightly lower but the time required would be twice as long.}
 
+ \label{fig:disjoint-jobs}
 \end{figure}
 
 
@@ -76,32 +78,32 @@ We are willing to take the slight cost penalty of parallelism in exchange for a 
 
 A second trade-off we considered was whether to actively probe network conditions.  Active probing could give us more accurate information about the state of the network, but comes at the cost of increased complexity.  At the root of the matter lies the following question:
 
-"Is occupancy a good enough heuristic for determining which areas of the network are congested?"
+\begin{quote}
+Is occupancy a good enough heuristic for determining which areas of the network are congested?
+\end{quote}
 
 Our answer to this question is yes; the reasoning is as follows.  The typical use case of a data center is traffic-heavy: jobs computed collaboratively by many machines, such as MapReduce.  If there are many VMs in a cluster, it is likely that on average each VM is using a lot of network bandwidth, and thus that the cluster is congested.  Conversely, if there are only a few VMs in a cluster, the load on the network will typically be smaller.  Thus, occupancy is a good heuristic for measuring network congestion in the case of a data center.
 
-We asked whether occupancy is a "good enough" heuristic, because there is an alternative.  We could devise a scheme of active probing, in which we send one or more "scout" VMs to the different clusters and send artificial data across the network to measure statistics.  This would increase cost, since VM time costs money; the putative benefit would be more accurate measurements of the network conditions.  In our view, the costs outweigh the potential benefits, for the following reasons:
+We asked whether occupancy is a ``good enough'' heuristic, because there is an alternative.  We could devise a scheme of active probing, in which we send one or more ``scout'' VMs to the different clusters and send artificial data across the network to measure statistics.  This would increase cost, since VM time costs money; the putative benefit would be more accurate measurements of the network conditions.  In our view, the costs outweigh the potential benefits, for the following reasons:
 
-\vspace{-4mm}
-\begin{enumerate}
-  \item For small jobs, active probing would increase the number of VMs running by a significant percentage.
-  \item Even for large jobs, devising rules for active probing adds unnecessary complexity to the system.
-  \item  Because occupancy is a fairly good heuristic, the marginal gains from active probing would be small.
+\begin{enumerate}[noitemsep]
+  \item For small jobs, active probing would significantly increase the number of running VMs.
+  \item Devising rules for active probing adds unnecessary complexity to the system.
+  \item Because occupancy is a fairly good heuristic, the marginal gains from active probing would be small.
   \item Measuring occupancy is cheap and fast (a single API call measures the occupancy of a physical machine in the data center).
-\end{enumerate}	
-
+\end{enumerate}
 
 \subsection{Coordinators}
 
-In addition to the VMs required for the user application, Placr spawns two additional VMs: the micro coordinator and the macro coordinator.  VMs other than these two coordinators will be referred to as application VMs.
+In addition to the VMs required for the user application, Placr spawns two additional VMs: the \textit{micro coordinator} and the \textit{macro coordinator}.  VMs other than these two coordinators will be referred to as \textit{application VMs}.
 
-The coordinators are the first two VMs spawned by Placr, and are responsible for placing and rearranging application VMs.  The location of the coordinators does not change during the lifetime of the application.  The two coordinators are placed in the same group (or at least, in the same cluster), if such a placement is possible at the time when the application starts.  In the vast majority of cases, there will exist a pair of open VM slots somewhere in the network, and so the micro and marco coordinators will reside in the same group.  Each application VM is told the location of the micro coordinator upon initialization.
+The coordinators are the first two VMs spawned by Placr, and are responsible for placing and rearranging application VMs.  The location of the coordinators does not change during the lifetime of the application.  The two coordinators are placed in the same group (or at least, in the same cluster), if such a placement is possible at the time when the application starts.  Each application VM is told the location of the micro coordinator upon initialization.
 
 \subsection{Measurement}
 
-Network statistics are measured in a distributed manner and collected at the micro coordinator.  Each application VM keeps a log of its recent (over the past 100 milliseconds) communications with other VMs.  This logging is done by the network layer of the VM’s operating system.  An additional daemon running on each VM periodically reads these logs and generates a summary message called a report (see Figure ??).  Each VM sends a report to the micro coordinator every 100 milliseconds.
+Network statistics are measured in a distributed manner and collected at the micro coordinator.  Each application VM keeps a log of its recent (over the past 100 milliseconds) communications with other VMs.  This logging is done by the network layer of the VM's operating system.  An additional daemon running on each VM periodically reads these logs and generates a summary message called a \textit{report} (see Figure \ref{fig:report}).  Each VM sends a report to the micro coordinator every 100 milliseconds.
 
-The reporting interval of 100 milliseconds was chosen deliberately.  Network usage in the data center changes rapidly enough that a reporting interval on the order of seconds would not provide fresh enough information to make placement decisions upon.  Conversely, a reporting interval of 10 milliseconds or less may “miss” important information, if the communication pattern between two VMs is bursty.
+The reporting interval of 100 milliseconds was chosen deliberately.  Network usage in the data center changes rapidly enough that a reporting interval on the order of seconds would not provide fresh enough information to make placement decisions upon.  Conversely, a reporting interval of 10 milliseconds or less may ``miss'' important information, if the communication pattern between two VMs is bursty.
 
 \begin{figure}
   \centering
@@ -109,6 +111,7 @@ The reporting interval of 100 milliseconds was chosen deliberately.  Network usa
 
  \caption{The report data structure for one VM is shown above. Report is an associated array with key, value as follows. key is a VM id that communicated with this VM over the past 100 msec. The associated value is the number of bytes this VM communicated with the VM with id key in the past 100 msec.}
  
+ \label{fig:report}
 \end{figure}
 
 %\FloatBarrier
@@ -118,43 +121,64 @@ We now give an overview of the placement algorithms used by the micro and macro 
 
 \subsubsection{Micro and Macro algorithms}
 
-The micro coordinator runs a fast-paced online algorithm to make small placement decisions as it receives reports from application VMs.  The purpose of this algorithm is to make small, locally optimal choices in order to bring the application’s VM placement close to a local optimum.
+The micro coordinator runs a fast-paced online algorithm to make small placement decisions as it receives reports from application VMs.  The purpose of this algorithm is to make small, locally optimal choices in order to bring the application's VM placement close to a local optimum.
 
-If the micro coordinator’s online algorithm were the only aspect of the placement component, then Placr would run the risk of getting caught in a local optimum that is worse than the global optimum.  For this reason, the placement decisions of the micro coordinator are supplemented by placement decisions of the macro coordinator.  The macro coordinator runs an offline graph algorithm to compute a global rearrangement of all application VMs into available slots in the network.  This computation requires significant computing power and takes a few seconds to complete.  Thus, the macro coordinator works continuously and outputs a placement decision every few seconds.
+If the micro coordinator's online algorithm were the only aspect of the placement component, then Placr would run the risk of getting caught in a local optimum that is worse than the global optimum.  For this reason, the placement decisions of the micro coordinator are supplemented by placement decisions of the macro coordinator.  The macro coordinator runs an offline graph algorithm to compute a global rearrangement of all application VMs into available slots in the network.  This computation requires significant computing power and takes a few seconds to complete.  Thus, the macro coordinator works continuously and outputs a placement decision every few seconds.
 
 \subsubsection{Communication between micro and macro coordinators}
 
-The communication between the micro and macro coordinators is as follows.  The micro coordinator forwards all reports it receives to the macro coordinator, in 1-second digests.  The macro coordinator, in turn, sends its placement decisions to the micro coordinator.  The actual execution of the macro coordinator’s decisions are carried out by the micro coordinator.  This detail is crucial, as it ensures that only one machine (the micro coordinator) ever executes place() API calls.  Therefore, the micro coordinator knows, at all times, the physical location of each VM.  This eliminates the concurrency issues that would arise if multiple machines were moving VMs at the same time.
+The communication between the micro and macro coordinators is as follows.  The micro coordinator forwards all reports it receives to the macro coordinator, in 1-second digests.  The macro coordinator, in turn, sends its placement decisions to the micro coordinator.  The actual execution of the macro coordinator's decisions are carried out by the micro coordinator.  This detail is crucial, as it ensures that only one machine (the micro coordinator) ever executes {\tt place()} API calls.  Therefore, the micro coordinator knows, at all times, the physical location of each VM.  This eliminates the concurrency issues that would arise if multiple machines were moving VMs at the same time.
+
 
 \subsection{Online algorithm: Micro}
-
+\newcommand{\VMa}{$\textit{VM}_a$}
+\newcommand{\VMb}{$\textit{VM}_b$}
 Every time a report from a VM is received, the micro coordinator attempts to move that VM, if doing so would decrease the amount of inter-group communication.
 
-If more data is being transferred between a VM (say $VM_a$) and an external group (say $g$) than between that VM and its own group, then it would be beneficial to move $VM_a$ into group $g$, if there is an open slot (see Figure 3).
+If more data is being transferred between a VM (say \VMa) and an external group (say $g$) than between that VM and its own group, then it would be beneficial to move \VMa into group $g$, if there is an open slot (see Figure \ref{fig:micro-move}).  Here, and for the remainder of this section, ``between'' is bidirectional, i.e., is the sum of data sent from \VMa to group $g$ and data sent from group $g$ to \VMa.
 
 \begin{figure}
   \centering
 \includegraphics[scale=0.65]{micro1.png}
 
- \caption{$VM_b$ communicates with group 1 more than its own group.  If there is an open slot, $VM_b$ should be moved to group 1.}
+ \caption{\VMb communicates with group 1 more than its own group.  If there is an open slot, \VMb should be moved to group 1.}
+
+ \label{fig:micro-move}
  
 \end{figure}
 
-Even if group g does not have any open slots, it may be beneficial to switch the location of $VM_a$ with one of the VMs in group g (see Figure 4).
+Even if group $g$ does not have any open slots, it may be beneficial to switch the location of \VMa with one of the VMs in group $g$ (see Figure \ref{fig:micro-switch}).
 \begin{figure}
   \centering
 \includegraphics[scale=0.65]{micro2.png}
 
- \caption{Group 1 and group 2 do not have any open slots, but it would be beneficial to switch the locations of $VM_a$ and $VM_b$.}
+ \caption{Group 1 and group 2 do not have any open slots, but it would be beneficial to switch the locations of \VMa and \VMb.}
+
+ \label{fig:micro-switch}
  
 \end{figure}
 
+To implement the above possibility, the micro-coordinator keeps additional data structures.  For each group, the micro-coordinator stores a ``waiting list'' of VMs that are waiting to move into that group.  (So, there are 24 such lists.)
 
+In the illustration above, the list for group 1 contains \VMb; the list for group 2 contains \VMa.
 
-To implement the above possibility, the micro-coordinator keeps additional data structures:
-For each group, the micro-coordinator stores a “waiting list” of VMs that are waiting to move into that group. [there are 24 such lists].
+Here is the algorithm used by the micro coordinator in detail:
+\begin{enumerate}
+  \item The micro-coordinator receives a report.  Suppose the sender is \VMa.
+  \item The micro-coordinator deletes \VMa from any of the 24 lists it is currently on, because \VMa's membership in those lists is now stale.
+  \item Based on the report, the micro coordinator computes the total number of bytes sent from \VMa to each group over the past 100 milliseconds.  Let $\texttt{group\_comm}[g]$ be the number of bytes sent from \VMa to group $g$ in the past 100 milliseconds.
+  \item Let $g_a$ denote the group in which \VMa currently resides.  For each group g, let
+    \[ \texttt{desire\_to\_transfer}[g] = \texttt{group\_comm}[g] - \texttt{group\_comm}[g_a]. \]
+    If $\texttt{desire\_to\_transfer}[g] > 0$, then \VMa is transferring more data to group $g$ than to its own group, and thus we should try to move \VMa into group $g$.
+  \item For each group $g$ for which $\texttt{desire\_to\_transfer}[g] > 0$, in descending order of the magnitude of $\texttt{desire\_to\_transfer}[g]$, the micro coordinator does the following:
+    \begin{enumerate}[label=(\alph{*})]
+      \item Use the \texttt{machine\_occupancy()} API call to determine whether there is an open slot in group $g$.  If so, move \VMa into group $g$.
+      \item If there are no open slots in group $g$, search through the waiting list for group $g$ to determine whether there is a VM waiting to switch into group $g_a$.  If so, switch the locations of that VM and \VMa.
+    \end{enumerate}
 
-In the illustration above, the list for group 1 contains ${VM}_b$; the list for group 2 contains ${VM}_a$.
+  \item If no switch or transfer has yet been made, the micro coordinator adds \VMa to the waiting list of each group $g$ for which $\texttt{desire\_to\_transfer}[g] > 0$.
+\end{enumerate}
+
 
 \FloatBarrier
 
@@ -164,19 +188,17 @@ Every few seconds, the macro coordinator computes a global rearrangement of all 
 
 We now discuss aspects of the macro step in further detail:
 
-\subsubsection{2.7.1 Information used by the macro coordinator}
+\subsubsection{Information used by the macro coordinator}
 
 The macro coordinator uses the following information:
 
-\vspace{-4mm}
 \begin{itemize}
-  \item 
-Which VMs are trying to send data to each other.  Recall that the micro coordinator forwards a copy of all the measurement reports it receives to the macro coordinator in 1-second digests.  This way, the macro coordinator has recent data on which pairs of the user's VMs are transferring data to each other.
-  \item
-  Which regions of the network are highly occupied.  Additionally, the macro coordinator gathers information about the occupancy of each physical machine, using the \Verb"machine_occupancy()" API call on the physical machines in the cluster.  (There are 1152 physical machines in the cluster; we assume that the network component providing this API can give these 1152 values in, say, under a second.)   We use the occupancy as a heuristic to predict congestion: densely occupied regions are likely to be congested, and sparsely occupied regions are likely to be uncongested.  (See our detailed discussion of this issue above in the Tradeoffs section.)
-  
+  \item {\em Which VMs are trying to send data to each other.}  Recall that the micro coordinator forwards a copy of all the measurement reports it receives to the macro coordinator in 1-second digests.  This way, the macro coordinator has recent data on which pairs of the user's VMs are transferring data to each other.
+    
+  \item {\em Which regions of the network are highly occupied.}  The macro coordinator gathers information about the occupancy of each physical machine, using the \texttt{machine\_occupancy()} API call on the physical machines in the cluster.  (There are 1152 physical machines in the cluster; we assume that the network component providing this API can give these 1152 values in, say, under a second.)   We use the occupancy as a heuristic to predict congestion: densely occupied regions are likely to be congested, and sparsely occupied regions are likely to be uncongested.  (See our detailed discussion of this issue above in the \S\ref{sec:tradeoffs}.)  Of course, for purposes of the macro step, slots currently occupied by our own VMs count as open.
 \end{itemize}
 
+%% HERE IS WHERE BEN LEFT OFF
 
 \subsubsection{Algorithm used to compute the macro step}
 
@@ -194,7 +216,7 @@ To elucidate this process, let us detail the first phase.  Suppose our job requi
  
 \end{figure}
 
-The second phase proceeds in exactly the same way.  We have four instances of Minimum Multicut (or fewer, if some of the clusters have not been assigned any VMs by phase one).  Within each cluster, there are six groups.  Let yl be the number of available slots in group l (l = 1,...,6).  Let G' be the restriction of G to just the vertices corresponding to VMs that have been assigned to the current cluster.  Then we wish to partition the vertices of G’ (the virtual machines in the current cluster) into six disjoint sets S1, ..., S6, with |Sl| ≤ yl, such that inter-group communication is minimized.  This is again done using VMMinKcut.  (See Figure 6)
+The second phase proceeds in exactly the same way.  We have four instances of Minimum Multicut (or fewer, if some of the clusters have not been assigned any VMs by phase one).  Within each cluster, there are six groups.  Let yl be the number of available slots in group l (l = 1,...,6).  Let G' be the restriction of G to just the vertices corresponding to VMs that have been assigned to the current cluster.  Then we wish to partition the vertices of G' (the virtual machines in the current cluster) into six disjoint sets S1, ..., S6, with |Sl| ≤ yl, such that inter-group communication is minimized.  This is again done using VMMinKcut.  (See Figure 6)
 
 \begin{figure}
   \centering
@@ -206,7 +228,7 @@ The second phase proceeds in exactly the same way.  We have four instances of Mi
 
 Once VMs have been assigned to groups, the computation phase of the macro step is complete; the positioning of a VM within its assigned group is arbitrary.  The positioning does not matter because the communication overhead within a group is negligible.
 
-We refer to the above algorithm as the “basic algorithm.”  The actual algorithm used by the macro coordinator is a modified version of the basic algorithm which incorporates three major improvements.  To motivate these improvements, we first present problems they solve.
+We refer to the above algorithm as the ``basic algorithm.''  The actual algorithm used by the macro coordinator is a modified version of the basic algorithm which incorporates three major improvements.  To motivate these improvements, we first present problems they solve.
 
 \textit{Problem 1}. Because phase one of the basic algorithm considers only clusters and not groups, it is possible that one group within the data center has enough room for all n of our VMs, but we instead assign our VMs to a different cluster in which the open slots are spread out between several groups.  Thus the basic algorithm could lead to suboptimal placement.
 
@@ -216,7 +238,7 @@ We refer to the above algorithm as the “basic algorithm.”  The actual algori
 
 \textit{Improvement 2}. It is okay if the macro step fails every once in a while; we just need to make sure it does not fail often.  The most likely way in which the macro step could fail is if we plan to use up all available VM slots in a given cluster or group.  Then, if a few new VMs from another user enter the cluster or group, there will not be enough space left to execute our plan.  Thus, we need a way to discourage the basic algorithm from making assignments which use up all the available space in a given cluster or group.
 
-We achieve this by introducing "leeway" to the input to VMMinKcut, in the following way (see Figure ??).  Consider phase one of the basic algorithm (in which VMs are assigned to clusters), and consider a cluster which has P available slots.  Rather than allowing the VMMinKcut algorithm to assign VMs to all P spaces, we allow only at most P - b VMs to be assigned to the cluster.  Here b is the so-called “leeway.”  Then, as long as not more than b new VMs are added to the cluster during our computation, there will still be enough space to execute the computed macro step.  Thus b should be large enough that, usually, the occupancies of clusters do not change by more than b over the span of a few seconds.  If b is too large, though, we may unnecessarily restrict our choices, forcing ourselves to choose a suboptimal assignment.  We propose the following rule for assigning b:
+We achieve this by introducing "leeway" to the input to VMMinKcut, in the following way (see Figure ??).  Consider phase one of the basic algorithm (in which VMs are assigned to clusters), and consider a cluster which has P available slots.  Rather than allowing the VMMinKcut algorithm to assign VMs to all P spaces, we allow only at most P - b VMs to be assigned to the cluster.  Here b is the so-called ``leeway.''  Then, as long as not more than b new VMs are added to the cluster during our computation, there will still be enough space to execute the computed macro step.  Thus b should be large enough that, usually, the occupancies of clusters do not change by more than b over the span of a few seconds.  If b is too large, though, we may unnecessarily restrict our choices, forcing ourselves to choose a suboptimal assignment.  We propose the following rule for assigning b:
 
 If setting b=10 would leave enough room for us to place all n VMs in the network (that is, if the number of available slots in the network is at least n + 4b), then we set b=10.  Otherwise, we choose the largest value of b that does satisfy this constraint.
 
@@ -228,11 +250,11 @@ This leeway strategy applies in the same way to phase two of the basic algorithm
   \centering
 \includegraphics[scale=0.7]{occupiedgroups.png}
 
- \caption{ Improvements 2 and 3.  To simplify the diagram, we consider only a single cluster, depicted above.  Improvement 3 involves ignoring highly occupied groups.  In the above example, the groups with fewer than 5 available slots are ignored.  Improvement 2 then incorporates a “leeway” of b=10 to the actual number of available slots.  Ultimately, the number of slots in this cluster made available to the VMMinKcut algorithm is 130.}
+ \caption{ Improvements 2 and 3.  To simplify the diagram, we consider only a single cluster, depicted above.  Improvement 3 involves ignoring highly occupied groups.  In the above example, the groups with fewer than 5 available slots are ignored.  Improvement 2 then incorporates a ``leeway'' of b=10 to the actual number of available slots.  Ultimately, the number of slots in this cluster made available to the VMMinKcut algorithm is 130.}
 
 \end{figure}
 
-\textit{Improvement 3}. The idea is to “ignore” groups with high occupancy (see Figure ??).  By "ignore" we mean that we treat the ignored cluster as completely occupied (xk = 0), and do not allow VMMinKcut to assign any VMs to it.  The strategy is as follows.  We set a parameter c (which can be tuned; a reasonable starting point would be c=5).  Then:
+\textit{Improvement 3}. The idea is to ``ignore'' groups with high occupancy (see Figure ??).  By "ignore" we mean that we treat the ignored cluster as completely occupied (xk = 0), and do not allow VMMinKcut to assign any VMs to it.  The strategy is as follows.  We set a parameter c (which can be tuned; a reasonable starting point would be c=5).  Then:
 \vspace{-4mm}
 \begin{itemize}
   \item 
@@ -250,7 +272,7 @@ This improvement encourages phase one to favor clusters in which there are group
 \FloatBarrier
 \section{Analysis}
 
-In this section, we’ll look at a few of the common use cases of Placr and how it performs in each.  We’ll be looking at varying levels of occupancy, job size, job arrival rate in the data center, and strategies used by other users.
+In this section, we'll look at a few of the common use cases of Placr and how it performs in each.  We'll be looking at varying levels of occupancy, job size, job arrival rate in the data center, and strategies used by other users.
 
 \subsection{Low Number of VMs}
 
@@ -262,7 +284,7 @@ The overhead of having two extra VMs for coordination may be undesirable in the 
 
 \subsection{High Number of VMs, Many Open Slots}
 
-Placr should effectively handle the case of high number of VMs, many open slots.  By “many” we mean that the data center has significantly more slots open than the job requires. In general, our two-level macro placement strategy should place the VMs close to each other with minimal inter-group and inter-cluster communication.  Our special rule to first check if all machines can be in the same group will produce an extremely efficient placement if the check succeeds.  If a group with enough occupancy for the whole system exists, Placr will use it.
+Placr should effectively handle the case of high number of VMs, many open slots.  By ``many'' we mean that the data center has significantly more slots open than the job requires. In general, our two-level macro placement strategy should place the VMs close to each other with minimal inter-group and inter-cluster communication.  Our special rule to first check if all machines can be in the same group will produce an extremely efficient placement if the check succeeds.  If a group with enough occupancy for the whole system exists, Placr will use it.
 
 There may be times when the clustering by phase one of the macro step is suboptimal. For example, if one cluster has two groups which are empty, and another cluster has four groups which are about half full, our system will treat both clusters as if they have the same occupancy in phase one of the macro step. However, dividing VMs between two groups is significantly better than dividing into four groups, so the first cluster should have been favored. This problem is partially, but not entirely, alleviated by improvement 3 of the macro step: very highly occupied groups are ignored, but half-full groups are not distinguished from very unoccupied groups.
 
@@ -294,7 +316,7 @@ Situations such as a job finishing and many VMs leaving the network could result
 
 \end{figure}
 
-It seems correct, however, to take part in this race. If we are able to succeed and take the spot, then we’ll benefit from our improved position.  It’s clear that if our macro optimization steps are failing often, we aren't getting the best possible position though.  That is why we have added leeway into our macro step.  By assuming fewer open positions exist than are truly available, we account for changes in occupancy due to competing users. While we still expect the macro step to fail occasionally, the problem should be somewhat alleviated. 
+It seems correct, however, to take part in this race. If we are able to succeed and take the spot, then we'll benefit from our improved position.  It's clear that if our macro optimization steps are failing often, we aren't getting the best possible position though.  That is why we have added leeway into our macro step.  By assuming fewer open positions exist than are truly available, we account for changes in occupancy due to competing users. While we still expect the macro step to fail occasionally, the problem should be somewhat alleviated. 
 
 Our strategy is better optimized for situations where other users are using "dumb" strategies, but we still handle competitive cases as well. We will be slightly less efficient in time and cost, but this is expected when the competition for good locations is higher.
 
@@ -328,29 +350,29 @@ For example, in Figure 9, Clusters 1 and 4 are fully saturating their links to a
 
 As it stands, Placr does not use the matrix B, which tells us how much data each VM is expected to transfer to each other VM. We are more concerned about instantaneous data transfer rates since machines can be moved so quickly and cheaply.  Occasionally, however, it is better to make sacrifices in instantaneous data transfer to ensure that a VM completes its entire job faster.  Once a VM completes its job, we can remove it from the network so that it does not take spaces that other VMs could be using.  After this machine is removed, we can place the remaining machines more optimally.
 
-One idea we considered to fix this was to inflate the data transfer measurements from VMs that have made little progress so far.  Since our algorithm minimizes intercommunication, it would be more likely to generate a placement that is favorable to the VMs that have made little progress, allowing them to “catch up.”  The rate of inflation is a parameter that could be tuned by testing in a real data center.
+One idea we considered to fix this was to inflate the data transfer measurements from VMs that have made little progress so far.  Since our algorithm minimizes intercommunication, it would be more likely to generate a placement that is favorable to the VMs that have made little progress, allowing them to ``catch up.''  The rate of inflation is a parameter that could be tuned by testing in a real data center.
 
 In addition, we would have to expand our notion of progress beyond the progress() API function since we are concerned about both data transfer into the VM, and out to other VMs.  A VM that is finished sending data, but only half way done receiving data needs to be treated differently than a VM that has both finished sending data and receiving data.  We believe this is a solvable problem, though it needs further study.
 
 \section{Conclusion}
 
-Placr is an effective system for placing VMs within a data center, under the assumption that VMs can be moved quickly and cheaply.  Throughput reports from VMs, a two level macro placement algorithm, and hill-climbing micro optimizations combine to achieve low time and cost of the user’s application.  In the most common situations, we expect our system to find a close to optimal placement. For the edge cases where we believe Placr is currently inefficient, we have proposed possible solutions and areas for further study.
+Placr is an effective system for placing VMs within a data center, under the assumption that VMs can be moved quickly and cheaply.  Throughput reports from VMs, a two level macro placement algorithm, and hill-climbing micro optimizations combine to achieve low time and cost of the user's application.  In the most common situations, we expect our system to find a close to optimal placement. For the edge cases where we believe Placr is currently inefficient, we have proposed possible solutions and areas for further study.
 
 
 
 \begin{thebibliography}{9}
 
 \bibitem{Meng}
-  X. Meng, V. Pappas, and L. Zhang, “Improving the scalability of data
-center networks with trafﬁc-aware virtual machine placement,” in IEEE
+  X. Meng, V. Pappas, and L. Zhang, ``Improving the scalability of data
+center networks with trafﬁc-aware virtual machine placement,'' in IEEE
 INFOCOM, 2010.
 
 \bibitem{MengSlides}
-X. Meng, V. Pappas, and L. Zhang, Alexey Yarovinsky “Improving the scalability of data
-center networks with trafﬁc-aware virtual machine placement,” [Online Document] [cited 2014 May 11], Available HTTP: http://cs.engr.uky.edu/~qian/CS685/TVMPP.pdf.
+X. Meng, V. Pappas, and L. Zhang, Alexey Yarovinsky ``Improving the scalability of data
+center networks with trafﬁc-aware virtual machine placement,'' [Online Document] [cited 2014 May 11], Available HTTP: http://cs.engr.uky.edu/~qian/CS685/TVMPP.pdf.
 
 \bibitem{Piazza}
- Pratiksha Thaker “Cost of moving a VM?,” [Online Document] [cited 2014 May 11], Available HTTP: https://piazza.com/class/hp4dt9k35qp33s?cid=415.
+ Pratiksha Thaker ``Cost of moving a VM?,'' [Online Document] [cited 2014 May 11], Available HTTP: https://piazza.com/class/hp4dt9k35qp33s?cid=415.
 
 \end{thebibliography}
 
