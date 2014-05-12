@@ -198,15 +198,13 @@ The macro coordinator uses the following information:
   \item {\em Which regions of the network are highly occupied.}  The macro coordinator gathers information about the occupancy of each physical machine, using the \texttt{machine\_occupancy()} API call on the physical machines in the cluster.  (There are 1152 physical machines in the cluster; we assume that the network component providing this API can give these 1152 values in, say, under a second.)   We use the occupancy as a heuristic to predict congestion: densely occupied regions are likely to be congested, and sparsely occupied regions are likely to be uncongested.  (See our detailed discussion of this issue above in the \S\ref{sec:tradeoffs}.)  Of course, for purposes of the macro step, slots currently occupied by our own VMs count as open.
 \end{itemize}
 
-%% HERE IS WHERE BEN LEFT OFF
-
 \subsubsection{Algorithm used to compute the macro step}
 
 The basic problem to be solved by the macro step is as follows.  We wish to find an assignment of VMs to available slots in the data center, such that the amount of communication between groups is minimal and the amount of communication between clusters is minimal.  We first describe the solution of the basic problem; then we discuss two important improvements to the algorithm make it more effective as a VM placement strategy.
 
 We divide the basic problem into two phases. In the first phase, we assign VMs to clusters.  In the second phase, we assign VMs to groups.
 
-To elucidate this process, let us detail the first phase.  Suppose our job requires $n$ VMs.  Let $G$ be a weighted graph with $n$ vertices, with an edge from the $i$th vertex to the $j$th vertex if machine $i$ is trying to transfer data to machine $j$.  The weight assigned to this edge is the number of bytes transferred from machine $i$ to machine $j$ in the past second.  Let $x_k$ be the number of available slots in cluster $k (k = 1,2,3,4)$.  Then we face the following graph problem: partition the vertices of $G$ into four disjoint sets $S_1, S_2, S_3, S_4$, such that $|S_k| \leq x_k$, and such that the number of edges crossing from $S_k$ into $S_l$ for $k \neq l$ is minimized (see Figure 5).  (The constraint $|S_k| \leq x_k$ says that we can only place as many VMs in cluster $k$ as there are open slots.)  This is the classic Minimum Multicut problem.  Though Minimum Multicut is NP-hard, there exist good approximations which have practical running times.  We use the VMMinKcut algorithm of Meng, Pappas and Zhang [??] to solve this instance of Minimum Multicut.  The idea of their algorithm is to use Gomory-Hu trees to make a sequence of greedy choices that leads to a close-to-optimal multicut.
+To elucidate this process, let us detail the first phase.  Suppose our job requires $n$ VMs.  Let $G$ be a weighted graph with $n$ vertices, with an edge from the $i$th vertex to the $j$th vertex if VM $i$ is trying to transfer data to VM $j$.  The weight assigned to this edge is the number of bytes transferred from machine $i$ to machine $j$ in the past second.  Let $x_k$ be the number of available slots in cluster $k$ ($k = 1,2,3,4$).  Then we face the following graph problem: partition the vertices of $G$ into four disjoint sets $S_1,S_2,S_3,S_4$, such that $|S_k| \leq x_k$, and such that the number of edges crossing from $S_k$ into $S_\ell$ for $k \neq \ell$ is minimized (see Figure \ref{fig:macro-basic-1}).  (The constraint $|S_k| \leq x_k$ says that we can only place as many VMs in cluster $k$ as there are open slots.)  This is the classic Minimum Multicut problem.  Though Minimum Multicut is NP-hard, there exist good approximations which have practical running times.  We use the VMMinKcut algorithm of Meng, Pappas and Zhang \cite{Meng} to solve this instance of Minimum Multicut.  The idea of their algorithm is to use Gomory--Hu trees to make a sequence of greedy choices that leads to a close-to-optimal multicut.
 
 \begin{figure}
   \centering
@@ -214,15 +212,18 @@ To elucidate this process, let us detail the first phase.  Suppose our job requi
 
  \caption{Phase 1 of the basic algorithm.  The maximum sizes of each of the four clusters are specified, and the algorithm finds a configuration in which inter-cluster communication is (approximately) minimized.  In the figure, inter-cluster communication is highlighted in red.}
  
+ \label{fig:macro-basic-1}
 \end{figure}
 
-The second phase proceeds in exactly the same way.  We have four instances of Minimum Multicut (or fewer, if some of the clusters have not been assigned any VMs by phase one).  Within each cluster, there are six groups.  Let yl be the number of available slots in group l (l = 1,...,6).  Let G' be the restriction of G to just the vertices corresponding to VMs that have been assigned to the current cluster.  Then we wish to partition the vertices of G' (the virtual machines in the current cluster) into six disjoint sets S1, ..., S6, with |Sl| ≤ yl, such that inter-group communication is minimized.  This is again done using VMMinKcut.  (See Figure 6)
+The second phase proceeds in exactly the same way.  We have four instances of Minimum Multicut (or fewer, if some of the clusters have not been assigned any VMs by phase one).  Within each cluster, there are six groups.  Let $y_\ell$ be the number of available slots in group $\ell$ ($\ell = 1,\ldots,6)$.  Let $G'$ be the restriction of $G$ to just the vertices corresponding to VMs that have been assigned to the current cluster.  Then we wish to partition the vertices of $G'$ (the virtual machines in the current cluster) into six disjoint sets $S_1, \ldots, S_6$, with $|S_\ell| \leq y_\ell$, such that inter-group communication is minimized.  This is again done using VMMinKcut (see Figure \ref{fig:macro-basic-2}).
 
 \begin{figure}
   \centering
 \includegraphics[scale=0.7]{phase2.png}
 
  \caption{In phase two, we assign the VMs within each cluster to groups.  The number of available slots in each group is specified, and the VMMinKcut algorithm finds an assignment for which inter-group communication is (approximately) minimized.  In the above picture, group 1 is highlighted in pink, group 2 is outlined with a dashed line, and inte-group communication is highlighted in bold red.}
+ 
+ \label{fig:macro-basic-2}
 
 \end{figure}
 
@@ -230,44 +231,45 @@ Once VMs have been assigned to groups, the computation phase of the macro step i
 
 We refer to the above algorithm as the ``basic algorithm.''  The actual algorithm used by the macro coordinator is a modified version of the basic algorithm which incorporates three major improvements.  To motivate these improvements, we first present problems they solve.
 
-\textit{Problem 1}. Because phase one of the basic algorithm considers only clusters and not groups, it is possible that one group within the data center has enough room for all n of our VMs, but we instead assign our VMs to a different cluster in which the open slots are spread out between several groups.  Thus the basic algorithm could lead to suboptimal placement.
+\begin{trivlist}
+\item \textit{Problem 1}. Because phase one of the basic algorithm considers only clusters and not groups, it is possible that one group within the data center has enough room for all $n$ of our VMs, but we instead assign our VMs to a different cluster in which the open slots are spread out between several groups.  Thus the basic algorithm could lead to suboptimal placement.
 
-\textit{Improvement 1}. Before the basic macro step begins, we first check whether there is any one group in the data center with enough open spaces to fit all of our virtual machines.  If there is, we immediately place all our VMs there.  After that, the micro and macro coordinators can be eliminated and VMs can remain where they are until completion of the job.  Since communication overhead within a group is minimal, this is guaranteed to be an optimal placement forever.  Furthermore, if at any point in time all application VMs end up in the same group, the micro and macro coordinators can be eliminated at that time.
+\item \textit{Improvement 1}. Before the basic macro step begins, we first check whether there is any one group in the data center with enough open spaces to fit all of our virtual machines.  If there is, we immediately place all our VMs there.  After that, the micro and macro coordinators can be eliminated and VMs can remain where they are until completion of the job.  Since communication overhead within a group is minimal, this is guaranteed to be an optimal placement forever.  Furthermore, if at any point in time all application VMs end up in the same group, the micro and macro coordinators can be eliminated at that time.
 
-\textit{Problem 2}. Network conditions are changing.  It is possible that during the few seconds in which we compute the macro step, slots that we thought were available actually got filled up.  Thus, it might not be possible to execute the computed macro step.
+\item \textit{Problem 2}. Network conditions are changing.  It is possible that during the few seconds in which we compute the macro step, slots that we thought were available actually got filled up.  Thus, it might not be possible to execute the computed macro step.
 
-\textit{Improvement 2}. It is okay if the macro step fails every once in a while; we just need to make sure it does not fail often.  The most likely way in which the macro step could fail is if we plan to use up all available VM slots in a given cluster or group.  Then, if a few new VMs from another user enter the cluster or group, there will not be enough space left to execute our plan.  Thus, we need a way to discourage the basic algorithm from making assignments which use up all the available space in a given cluster or group.
+\item \textit{Improvement 2}. It is okay if the macro step fails every once in a while; we just need to make sure it does not fail often.  The most likely way in which the macro step could fail is if we plan to use up all available VM slots in a given cluster or group.  Then, if a few new VMs from another user enter the cluster or group, there will not be enough space left to execute our plan.  Thus, we need a way to discourage the basic algorithm from making assignments which use up all the available space in a given cluster or group.
 
-We achieve this by introducing "leeway" to the input to VMMinKcut, in the following way (see Figure ??).  Consider phase one of the basic algorithm (in which VMs are assigned to clusters), and consider a cluster which has P available slots.  Rather than allowing the VMMinKcut algorithm to assign VMs to all P spaces, we allow only at most P - b VMs to be assigned to the cluster.  Here b is the so-called ``leeway.''  Then, as long as not more than b new VMs are added to the cluster during our computation, there will still be enough space to execute the computed macro step.  Thus b should be large enough that, usually, the occupancies of clusters do not change by more than b over the span of a few seconds.  If b is too large, though, we may unnecessarily restrict our choices, forcing ourselves to choose a suboptimal assignment.  We propose the following rule for assigning b:
+  We achieve this by introducing ``leeway'' to the input to VMMinKcut, in the following way (see Figure \ref{fig:improvements}).  Consider phase one of the basic algorithm (in which VMs are assigned to clusters), and consider a cluster which has $P$ available slots.  Rather than allowing the VMMinKcut algorithm to assign VMs to all $P$ spaces, we allow only at most $P-b$ VMs to be assigned to the cluster.  Here $b$ is the so-called ``leeway.''  Then, as long as not more than $b$ new VMs are added to the cluster during our computation, there will still be enough space to execute the computed macro step.  Thus b should be large enough that, usually, the occupancies of clusters do not change by more than $b$ over the span of a few seconds.  If $b$ is too large, though, we may unnecessarily restrict our choices, forcing ourselves to choose a suboptimal assignment.  We propose the following rule for assigning $b$:
 
-If setting b=10 would leave enough room for us to place all n VMs in the network (that is, if the number of available slots in the network is at least n + 4b), then we set b=10.  Otherwise, we choose the largest value of b that does satisfy this constraint.
+  \begin{quote}
+If setting $b=10$ would leave enough room for us to place all $n$ VMs in the network (that is, if the number of available slots in the network is at least $n + 4b$), then we set $b=10$.  Otherwise, we choose the largest value of $b$ that does satisfy this constraint.
+  \end{quote}
 
-This leeway strategy applies in the same way to phase two of the basic algorithm (in which we assign VMs to groups), except that the maximum leeway b should be smaller since there are fewer slots in the group.  We propose setting a maximum of b=5 in the second phase.  As Placr begins to be used in real data centers, these maximum values of b should be tuned to optimize performance.
+This leeway strategy applies in the same way to phase two of the basic algorithm (in which we assign VMs to groups), except that the maximum leeway $b$ should be smaller since there are fewer slots in the group.  We propose setting a maximum of $b=5$ in the second phase.  As Placr begins to be used in real data centers, these maximum values of $b$ should be tuned to optimize performance.
 
-\textit{Problem 3}. A cluster in which there is one group with lots of open space is preferable to a cluster in which there are several groups each with a little open space, but phase one of the basic algorithm does not take into account the distribution of open space within a cluster.
+\item \textit{Problem 3}. A cluster in which there is one group with lots of open space is preferable to a cluster in which there are several groups each with a little open space, but phase one of the basic algorithm does not take into account the distribution of open space within a cluster.
 
 \begin{figure}
   \centering
 \includegraphics[scale=0.7]{occupiedgroups.png}
 
- \caption{ Improvements 2 and 3.  To simplify the diagram, we consider only a single cluster, depicted above.  Improvement 3 involves ignoring highly occupied groups.  In the above example, the groups with fewer than 5 available slots are ignored.  Improvement 2 then incorporates a ``leeway'' of b=10 to the actual number of available slots.  Ultimately, the number of slots in this cluster made available to the VMMinKcut algorithm is 130.}
+ \caption{ Improvements 2 and 3.  To simplify the diagram, we consider only a single cluster, depicted above.  Improvement 3 involves ignoring highly occupied groups.  In the above example, the groups with fewer than 5 available slots are ignored.  Improvement 2 then incorporates a ``leeway'' of $b=10$ to the actual number of available slots.  Ultimately, the number of slots in this cluster made available to the VMMinKcut algorithm is 130.}
+
+ \label{fig:improvements}
 
 \end{figure}
 
-\textit{Improvement 3}. The idea is to ``ignore'' groups with high occupancy (see Figure ??).  By "ignore" we mean that we treat the ignored cluster as completely occupied (xk = 0), and do not allow VMMinKcut to assign any VMs to it.  The strategy is as follows.  We set a parameter c (which can be tuned; a reasonable starting point would be c=5).  Then:
-\vspace{-4mm}
+\item \textit{Improvement 3}. The idea is to ``ignore'' groups with high occupancy (see Figure \ref{fig:improvements}).  By ``ignore'' we mean that we treat the ignored group as completely occupied ($y_\ell = 0$), and do not allow VMMinKcut to assign any VMs to it.  The strategy is as follows.  We set a parameter $c$ (which can be tuned; a reasonable starting point would be $c=5$).  Then:
+
 \begin{itemize}
-  \item 
-Pick a group with fewer than c open slots.  If, after ignoring this group, there are still n available VM slots, then ignore the group.
-  \item
-Repeat this process until all groups have at least c open slots, or until ignoring another group would result in fewer than n available VM slots.
+  \item Pick a group with fewer than $c$ open slots.  If, after ignoring this group, there are still $n$ available VM slots, then ignore the group.
+  \item Repeat this process until all groups have at least $c$ open slots, or until ignoring another group would result in fewer than $n$ available VM slots.
 \end{itemize}
 
 This improvement encourages phase one to favor clusters in which there are groups with lots of open space.  It also discourages assignment to congested clusters, since the groups in such clusters will not have much open space.
 
-
-
-
+\end{trivlist}
 
 \FloatBarrier
 \section{Analysis}
