@@ -47,6 +47,7 @@ Ben Zinberg \\
 \end{minipage}
 \begin{minipage}{0.4\textwidth}
 \begin{flushright} \large
+6.033 Design Project 2 \\[0.5cm]
   \emph{Supervisors:} \\[0.2cm]
 Prof.\ Arvind \\
 Qian Long
@@ -247,7 +248,7 @@ To elucidate this process, let us detail the first phase.  Suppose our job requi
   \centering
 \includegraphics[scale=0.7]{phase1.png}
 
- \caption{Phase 1 of the basic algorithm.  The maximum sizes of each of the four clusters are specified, and the algorithm finds a configuration in which inter-cluster communication is (approximately) minimized.  In the figure, inter-cluster communication is highlighted in red.}
+ \caption{Phase 1 of the basic algorithm.  (In reality the graph $G$ is directed, but to simplify the diagram we have drawn the graph above as undirected.)  The maximum capacities of each of the four clusters are specified, and the algorithm finds a configuration in which inter-cluster communication is (approximately) minimized.  In the figure, inter-cluster communication is highlighted in red.}
  
  \label{fig:macro-basic-1}
 \end{figure}
@@ -258,7 +259,7 @@ The second phase proceeds in exactly the same way.  We have four instances of Mi
   \centering
 \includegraphics[scale=0.7]{phase2.png}
 
- \caption{In phase two, we assign the VMs within each cluster to groups.  The number of available slots in each group is specified, and the VMMinKcut algorithm finds an assignment for which inter-group communication is (approximately) minimized.  In the above picture, group 1 is highlighted in pink, group 2 is outlined with a dashed line, and inte-group communication is highlighted in bold red.}
+ \caption{In phase two, we assign the VMs within each cluster to groups.  The number of available slots in each group is specified, and the VMMinKcut algorithm finds an assignment for which inter-group communication is (approximately) minimized.  In the above picture, group 1 is highlighted in pink, group 2 is outlined with a dashed line, and inter-group communication is highlighted in bold red.}
  
  \label{fig:macro-basic-2}
 
