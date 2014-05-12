@@ -304,21 +304,23 @@ Due to micro-adjustments, our system should be very effective at navigating this
 
 \subsection{Competing Placements}
 
-We must also consider the situation when there are many applications using Placr as their placement strategy.  In this case, everyone in the network would be trying to use macro optimizations to improve their position in the network.  In this case, we would expect much more movement across the network, which could cause problems for our macro optimizations.
+We must also consider the situation when there are many applications using Placr as their placement strategy.  In this case, everyone would be trying to use macro optimizations to improve their position in the network.  In this case, we would expect much more movement across the network, which could cause problems for our macro optimizations.
 
-Situations such as a job finishing and many VMs leaving the network could result in a race by all other users to fill the empty space.  Figure 5.1 illustrates a problematic situation that we could encounter.
+Situations such as a job finishing and many VMs leaving the network could result in a race by all other users to fill the empty space.  Figure \ref{fig:macrodelay} illustrates a problematic situation that we could encounter.
 
 \begin{figure}
   \centering
-\includegraphics[scale=0.7]{macrodelay.png}
+\includegraphics[scale=0.65]{macrodelay.png}
 
- \caption{  In step 1, the macro coordinator collects information on group occupancy.  Next, in step 2, another user places 10 VMs in group A, decreasing the occupancy.  Finally, in step 3, the macro coordinator tries to execute the placements it calculated and place 18 VMs in group A.  Unfortunately, since another user already placed 10 VMs in group A, the placement the macro coordinator calculated is invalid. }
+ \caption{In step 1, the macro coordinator collects information on group occupancy.  Next, in step 2, another user places 10 VMs in group A, decreasing the occupancy.  Finally, in step 3, the macro coordinator tries to execute the placements it calculated and place 18 VMs in group A.  Unfortunately, since another user already placed 10 VMs in group A, the placement the macro coordinator calculated is invalid.}
 
+ \label{fig:macrodelay}
+ 
 \end{figure}
 
 It seems correct, however, to take part in this race. If we are able to succeed and take the spot, then we'll benefit from our improved position.  It's clear that if our macro optimization steps are failing often, we aren't getting the best possible position though.  That is why we have added leeway into our macro step.  By assuming fewer open positions exist than are truly available, we account for changes in occupancy due to competing users. While we still expect the macro step to fail occasionally, the problem should be somewhat alleviated. 
 
-Our strategy is better optimized for situations where other users are using "dumb" strategies, but we still handle competitive cases as well. We will be slightly less efficient in time and cost, but this is expected when the competition for good locations is higher.
+Our strategy is better optimized for situations where other users are using ``dumb'' strategies, but we still handle competitive cases as well. We will be slightly less efficient in time and cost, but this is expected when the competition for good locations is higher.
 
 \subsection{High rate of Job Arrival}
 
@@ -334,15 +336,17 @@ While we believe our system as it stands is very strong, we have also identified
 
 One of the first areas in which we see room for improvement is in our use of network congestion information. Although we do attempt to minimize communication between our own VMs, we do not directly take into account congestion caused by other users.  One situation in which this could be relevant is if there is another application that is sending a large amount of data through the aggregator, making it undesirable to be in the same cluster as that application.
 
-For example, in Figure 9, Clusters 1 and 4 are fully saturating their links to an aggregator, while clusters 2 and 3 have minimal inter-cluster communication.
+For example, in Figure \ref{fig:cluster_congestion}, Clusters 1 and 4 are fully saturating their links to an aggregator, while clusters 2 and 3 have minimal inter-cluster communication.
 
 \begin{figure}
   \centering
 \includegraphics[scale=0.7]{cluster_congestion.png}
 
  \caption{Line thickness indicates magnitude of data transfer.}
+
+ \label{fig:cluster_congestion}
  
- \end{figure}
+\end{figure}
  
  In this situation, it is preferable to place VMs in clusters 2 and 3 if the job is large enough that inter-cluster communication is required.  In the current design however, all clusters are treated equally if they have the same levels of occupancy.
  
@@ -352,7 +356,7 @@ As it stands, Placr does not use the matrix B, which tells us how much data each
 
 One idea we considered to fix this was to inflate the data transfer measurements from VMs that have made little progress so far.  Since our algorithm minimizes intercommunication, it would be more likely to generate a placement that is favorable to the VMs that have made little progress, allowing them to ``catch up.''  The rate of inflation is a parameter that could be tuned by testing in a real data center.
 
-In addition, we would have to expand our notion of progress beyond the progress() API function since we are concerned about both data transfer into the VM, and out to other VMs.  A VM that is finished sending data, but only half way done receiving data needs to be treated differently than a VM that has both finished sending data and receiving data.  We believe this is a solvable problem, though it needs further study.
+In addition, we would have to expand our notion of progress beyond the \texttt{progress()} API function since we are concerned about both data transfer into the VM, and out to other VMs.  A VM that is finished sending data, but only half way done receiving data needs to be treated differently than a VM that has both finished sending data and receiving data.  We believe this is a solvable problem, though it needs further study.
 
 \section{Conclusion}
 
