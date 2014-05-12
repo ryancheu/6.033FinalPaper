@@ -1,69 +1,26 @@
-%
-% 6.857 homework template
-%
-% NOTE:
-% Be sure to define your team members with the \team command
-% Be sure to define the problem set with the \ps command
-% Be sure to use the \answer command for each of your answers
 \documentclass[11pt]{article}
 
-
-%\pagestyle{headings}
-\usepackage[dvips]{color}
-\usepackage{amsfonts}
-\usepackage{amssymb}
 \usepackage{amsmath}
-\usepackage{latexsym}
-\usepackage{fancyvrb}
-\usepackage{listings}
-\usepackage{color}
-
-\definecolor{mygreen}{rgb}{0,0.6,0}
-\definecolor{mygray}{rgb}{0.5,0.5,0.5}
-\definecolor{mymauve}{rgb}{0.58,0,0.82}
-\setlength{\parskip}{1pc}
-\setlength{\parindent}{1pt}
-\setlength{\topmargin}{-3pc}
-\setlength{\textheight}{9.0in}
-\setlength{\oddsidemargin}{1pc}
-\setlength{\evensidemargin}{1pc}
-\setlength{\textwidth}{6in}
 
 \usepackage{graphicx}
 \usepackage{enumitem}
 \usepackage{placeins}
-\setdescription{leftmargin=\parindent,labelindent=\parindent}
+\usepackage{verbatim}
+\usepackage{fancyvrb}
+\usepackage{fullpage}
+
+\title{Placr}
+\author{Ryan Cheu (ryancheu@mit.edu), David Kang(wkang@mit.edu), Ben Zinberg (bzinberg@mit.edu)}
 
 \begin{document}
 
 \begin{titlepage}
 
-
-
-% Title
-{ \huge \bfseries Placr\\[0.4cm] }
-% Author and supervisor
-\begin{minipage}{0.4\textwidth}
-Ryan Cheu \\ryancheu@mit.edu\\\\
-David Kang \\wkang@mit.edu\\\\
-Ben Zinberg \\bzinberg@mit.edu\\
-\end{minipage}
-
-
-
-\vfill
-
-% Bottom of the page
-{\large \today}
+\maketitle
 
 \end{titlepage}
-\newpage
 
-
-\LARGE{\textbf{1 Introduction}}
-
-\normalsize
-
+\section{Introduction}
 
 This report outlines the design for Placr, a system for controlling the placement of virtual machines (VMs) in a data center.  Our goal with Placr is to create a solution for public data center users that minimizes both the time and cost of a computing job.  The system will be able to adapt to changing conditions created both by other users of the data center and by varying data transfer rates of user VMs.
 
@@ -71,15 +28,12 @@ We assume that the data center charges the user a fixed monetary cost per minute
 
 	Placr has two components: measurement and placement.  Measurement is mediated by periodic data transfer reports which are sent from each VM to a central machine.  Once the reports are obtained, a combination of graph clustering algorithms and fast paced hill-climbing algorithms determine placement. Graph clustering algorithms will place VMs such that they are close to an optimal configuration and respond to macro scale events such as large changes in occupancy.  Hill-climbing algorithms will provide quick responses to changing data transfer requirements.
 
-\LARGE{\textbf{2 Design}}
-\normalsize
+\section{Design}
 
 In this section we’ll cover the design of Placr.  We’ll start with the assumptions we made during the design, then cover some of the tradeoffs we considered, and finally move on to describing the final design.
 
 
-\Large{\textbf{2.1 Assumptions and Definitions}}
-
-\normalsize
+\subsection{Assumptions and Definitions}
 
 Before discussing the heart of the design, we lay out a few important assumptions of our model:
 \vspace{-4mm}
@@ -96,15 +50,12 @@ We also make the following definition:
 A slot is one of the four VM locations within a physical machine.  In other words, a slot is a space into which a VM can be placed.  Each slot has its own IP address.  A VM can be moved to a new slot using the place() API call.
 \end{itemize}
 
-\Large{\textbf{2.2 Trade-offs and Alternatives}}
-
-\normalsize
+\subsection{Trade-offs and Alternatives}
 
 There were several important trade-offs to consider in the design of Placr.  We now detail two such trade-offs, and the reasoning behind our decisions.
 
-\large{\textbf{2.2.1 Disjoint jobs: in parallel or in series?}}
+\subsubsection{Disjoint jobs: in parallel or in series?}
 
-\normalsize 
 There may be cases in which the traffic pattern of our job consists of two sets of virtual machines, each of which is densely connected internally, but such that the two groups have minimal communication with each other.  To first-order approximation, this topology is really two disjoint jobs (see Figure ??).  Should we run these two jobs in parallel, or in series?  The advantage to running in series is that we can “hold on to” our slots in the fastest part of the data center network, and thus achieve low cost.  However, the time taken is nearly twice as long as running in parallel, and the cost savings are not large enough to make up for this increased time.  Also, the fastest part of the data center at one moment may not still be fast a few minutes later.  For these reasons, our system will run the jobs in parallel.  More generally, if there is space for all of our VMs to run at the same time, then our system will always run all of our VMs at the same time.  This favoring of parallelism serves our overall goal:
 
 \textit{Simultaneously near-minimal time and near-minimal cost.}
@@ -120,10 +71,8 @@ We are willing to take the slight cost penalty of parallelism in exchange for a 
 \end{figure}
 
 
-\FloatBarrier
-\large{\textbf{2.2.2 Actively probe network conditions?}}
-
-\normalsize
+%\FloatBarrier
+\subsubsection{Actively probe network conditions?}
 
 A second trade-off we considered was whether to actively probe network conditions.  Active probing could give us more accurate information about the state of the network, but comes at the cost of increased complexity.  At the root of the matter lies the following question:
 
@@ -142,16 +91,13 @@ We asked whether occupancy is a "good enough" heuristic, because there is an alt
 \end{enumerate}	
 
 
-\Large{\textbf{2.3 Coordinators}}
-
-\normalsize
+\subsection{Coordinators}
 
 In addition to the VMs required for the user application, Placr spawns two additional VMs: the micro coordinator and the macro coordinator.  VMs other than these two coordinators will be referred to as application VMs.
 
 The coordinators are the first two VMs spawned by Placr, and are responsible for placing and rearranging application VMs.  The location of the coordinators does not change during the lifetime of the application.  The two coordinators are placed in the same group (or at least, in the same cluster), if such a placement is possible at the time when the application starts.  In the vast majority of cases, there will exist a pair of open VM slots somewhere in the network, and so the micro and marco coordinators will reside in the same group.  Each application VM is told the location of the micro coordinator upon initialization.
 
-\Large{\textbf{2.4 Measurement}}
-\normalsize
+\subsection{Measurement}
 
 Network statistics are measured in a distributed manner and collected at the micro coordinator.  Each application VM keeps a log of its recent (over the past 100 milliseconds) communications with other VMs.  This logging is done by the network layer of the VM’s operating system.  An additional daemon running on each VM periodically reads these logs and generates a summary message called a report (see Figure ??).  Each VM sends a report to the micro coordinator every 100 milliseconds.
 
@@ -165,29 +111,22 @@ The reporting interval of 100 milliseconds was chosen deliberately.  Network usa
  
 \end{figure}
 
-\FloatBarrier
-\Large{\textbf{2.5 Placement}}
-
-\normalsize
+%\FloatBarrier
+\subsection{Placement}
 
 We now give an overview of the placement algorithms used by the micro and macro coordinators.  In the following sections, we describe each of the two algorithms in detail.
 
-\large{\textbf{2.5.1 Micro and Macro algorithms}}
-
-\normalsize
+\subsubsection{Micro and Macro algorithms}
 
 The micro coordinator runs a fast-paced online algorithm to make small placement decisions as it receives reports from application VMs.  The purpose of this algorithm is to make small, locally optimal choices in order to bring the application’s VM placement close to a local optimum.
 
 If the micro coordinator’s online algorithm were the only aspect of the placement component, then Placr would run the risk of getting caught in a local optimum that is worse than the global optimum.  For this reason, the placement decisions of the micro coordinator are supplemented by placement decisions of the macro coordinator.  The macro coordinator runs an offline graph algorithm to compute a global rearrangement of all application VMs into available slots in the network.  This computation requires significant computing power and takes a few seconds to complete.  Thus, the macro coordinator works continuously and outputs a placement decision every few seconds.
 
-\large{\textbf{2.5.2 Communication between micro and macro coordinators}}
-\normalsize
+\subsubsection{Communication between micro and macro coordinators}
 
 The communication between the micro and macro coordinators is as follows.  The micro coordinator forwards all reports it receives to the macro coordinator, in 1-second digests.  The macro coordinator, in turn, sends its placement decisions to the micro coordinator.  The actual execution of the macro coordinator’s decisions are carried out by the micro coordinator.  This detail is crucial, as it ensures that only one machine (the micro coordinator) ever executes place() API calls.  Therefore, the micro coordinator knows, at all times, the physical location of each VM.  This eliminates the concurrency issues that would arise if multiple machines were moving VMs at the same time.
 
-\Large{\textbf{2.6 Online algorithm: Micro }}
-
-\normalsize
+\subsection{Online algorithm: Micro}
 
 Every time a report from a VM is received, the micro coordinator attempts to move that VM, if doing so would decrease the amount of inter-group communication.
 
@@ -219,16 +158,14 @@ In the illustration above, the list for group 1 contains ${VM}_b$; the list for 
 
 \FloatBarrier
 
-\Large{\textbf{2.7 Offline algorithm: Macro}}
+\subsection{Offline algorithm: Macro}
 
-\normalsize
 Every few seconds, the macro coordinator computes a global rearrangement of all the application VMs, and sends it to the micro coordinator to be executed.  We refer to this rearrangement as a macro step.  The efficacy of macro steps relies heavily on the assumption that moving VMs is free, since executing the macro step may require moving many VMs at once.
 
 We now discuss aspects of the macro step in further detail:
 
-\large{\textbf{2.7.1 Information used by the macro coordinator}}
+\subsubsection{2.7.1 Information used by the macro coordinator}
 
-\normalsize
 The macro coordinator uses the following information:
 
 \vspace{-4mm}
@@ -241,9 +178,7 @@ Which VMs are trying to send data to each other.  Recall that the micro coordina
 \end{itemize}
 
 
-\large{\textbf{2.7.2 Algorithm used to compute the macro step}}
-
-\normalsize
+\subsubsection{Algorithm used to compute the macro step}
 
 The basic problem to be solved by the macro step is as follows.  We wish to find an assignment of VMs to available slots in the data center, such that the amount of communication between groups is minimal and the amount of communication between clusters is minimal.  We first describe the solution of the basic problem; then we discuss two important improvements to the algorithm make it more effective as a VM placement strategy.
 
@@ -313,24 +248,19 @@ This improvement encourages phase one to favor clusters in which there are group
 
 
 \FloatBarrier
-\LARGE{\textbf{3 Analysis}}
-
-\normalsize
+\section{Analysis}
 
 In this section, we’ll look at a few of the common use cases of Placr and how it performs in each.  We’ll be looking at varying levels of occupancy, job size, job arrival rate in the data center, and strategies used by other users.
 
-\Large{\textbf{3.1 Low Number of VMs}}
+\subsection{Low Number of VMs}
 
-\normalsize
 A job with a low number of VMs is the most basic use case of the system.  Unless the data center is very highly occupied, all application VMs will be placed in the same group and the coordinators will shut down for the remainder of the application.
 
 If there is not enough space for all our VMs in any one group, the macro coordinator will determine a placement of our VMs that minimizes inter-group communication.  If at a later time a group recovers enough free space to fit all our application VMs, our application VMs will be moved to that group and stay there.
 
 The overhead of having two extra VMs for coordination may be undesirable in the case of a small application.  If this use case turns out to be common, the system will need modifications.
 
-\Large{\textbf{3.2 High Number of VMs, Many Open Slots}}
-
-\normalsize
+\subsection{High Number of VMs, Many Open Slots}
 
 Placr should effectively handle the case of high number of VMs, many open slots.  By “many” we mean that the data center has significantly more slots open than the job requires. In general, our two-level macro placement strategy should place the VMs close to each other with minimal inter-group and inter-cluster communication.  Our special rule to first check if all machines can be in the same group will produce an extremely efficient placement if the check succeeds.  If a group with enough occupancy for the whole system exists, Placr will use it.
 
@@ -339,8 +269,7 @@ There may be times when the clustering by phase one of the macro step is subopti
 In a use case where there are many application VMs, the overhead of having two additional VMs as coordinators is not significant.  VM throughput is maximized, so time and cost should both be close to optimal.
 
 
-\Large{\textbf{3.3 High Number of VMs, Few Open Slots}}
-\normalsize
+\subsection{High Number of VMs, Few Open Slots}
 
 The case of high number of VMs with few open slots was the most difficult case considered during the design of Placr.  The job will be spread across several groups and clusters and our goal is to minimize the network traffic across routers.  We believe that Placr should perform very well in this case though.
 
@@ -351,9 +280,7 @@ Micro optimizations will be especially helpful in this case, since it is likely 
 Due to micro-adjustments, our system should be very effective at navigating this highly constrained environment to keep time low.  As in the previous case, the cost of having two extra VMs as coordinators is insignificant.
 
 
-\Large{\textbf{3.4 Competing Placements}}
-\normalsize
-
+\subsection{Competing Placements}
 
 We must also consider the situation when there are many applications using Placr as their placement strategy.  In this case, everyone in the network would be trying to use macro optimizations to improve their position in the network.  In this case, we would expect much more movement across the network, which could cause problems for our macro optimizations.
 
@@ -371,23 +298,17 @@ It seems correct, however, to take part in this race. If we are able to succeed 
 
 Our strategy is better optimized for situations where other users are using "dumb" strategies, but we still handle competitive cases as well. We will be slightly less efficient in time and cost, but this is expected when the competition for good locations is higher.
 
-\Large{\textbf{3.5 High rate of Job Arrival}}
-
-\normalsize
+\subsection{High rate of Job Arrival}
 
 Data centers with high rates of job arrivals are similar to the case of users with competitive strategies.  Because the occupancies of slots will be changing rapidly, the macro step is liable to fail occasionally, as new jobs can occupy the old spots during the time it takes to complete macro step. The leeway added during the macro step should help us navigate this situation just as it did in the competitive case.
 
 Incoming jobs from other users will likely cause sharp increases in intercommunication, if the computation is spread across multiple groups and clusters.  The micro-adjustments will react to this to some extent, but a macro step is crucial to achieving low time and cost.  If the typical job arrival rate is so fast that the macro step fails with high frequency, modifications to Placr will be necessary.
 
-\LARGE{\textbf{4 Areas for Improvement}}
-
-\normalsize
+\section{Areas for Improvement}
 
 While we believe our system as it stands is very strong, we have also identified several areas in which it could be improved.
 
-\Large{\textbf{4.1 Network Congestion}}
-
-\normalsize
+\subsection{Network Congestion}
 
 One of the first areas in which we see room for improvement is in our use of network congestion information. Although we do attempt to minimize communication between our own VMs, we do not directly take into account congestion caused by other users.  One situation in which this could be relevant is if there is another application that is sending a large amount of data through the aggregator, making it undesirable to be in the same cluster as that application.
 
@@ -403,9 +324,7 @@ For example, in Figure 9, Clusters 1 and 4 are fully saturating their links to a
  
  In this situation, it is preferable to place VMs in clusters 2 and 3 if the job is large enough that inter-cluster communication is required.  In the current design however, all clusters are treated equally if they have the same levels of occupancy.
  
-\Large{\textbf{4.2 Progress}}
-
-\normalsize
+\subsection{Progress}
 
 As it stands, Placr does not use the matrix B, which tells us how much data each VM is expected to transfer to each other VM. We are more concerned about instantaneous data transfer rates since machines can be moved so quickly and cheaply.  Occasionally, however, it is better to make sacrifices in instantaneous data transfer to ensure that a VM completes its entire job faster.  Once a VM completes its job, we can remove it from the network so that it does not take spaces that other VMs could be using.  After this machine is removed, we can place the remaining machines more optimally.
 
@@ -413,23 +332,27 @@ One idea we considered to fix this was to inflate the data transfer measurements
 
 In addition, we would have to expand our notion of progress beyond the progress() API function since we are concerned about both data transfer into the VM, and out to other VMs.  A VM that is finished sending data, but only half way done receiving data needs to be treated differently than a VM that has both finished sending data and receiving data.  We believe this is a solvable problem, though it needs further study.
 
-\LARGE{\textbf{5 Conclusion}}
+\section{Conclusion}
 
-\normalsize
 Placr is an effective system for placing VMs within a data center, under the assumption that VMs can be moved quickly and cheaply.  Throughput reports from VMs, a two level macro placement algorithm, and hill-climbing micro optimizations combine to achieve low time and cost of the user’s application.  In the most common situations, we expect our system to find a close to optimal placement. For the edge cases where we believe Placr is currently inefficient, we have proposed possible solutions and areas for further study.
 
-\LARGE{\textbf{6 References}}
 
-\normalsize
 
-X. Meng, V. Pappas, and L. Zhang, “Improving the scalability of data
+\begin{thebibliography}{9}
+
+\bibitem{Meng}
+  X. Meng, V. Pappas, and L. Zhang, “Improving the scalability of data
 center networks with trafﬁc-aware virtual machine placement,” in IEEE
 INFOCOM, 2010.
 
+\bibitem{MengSlides}
 X. Meng, V. Pappas, and L. Zhang, Alexey Yarovinsky “Improving the scalability of data
 center networks with trafﬁc-aware virtual machine placement,” [Online Document] [cited 2014 May 11], Available HTTP: http://cs.engr.uky.edu/~qian/CS685/TVMPP.pdf.
 
+\bibitem{Piazza}
  Pratiksha Thaker “Cost of moving a VM?,” [Online Document] [cited 2014 May 11], Available HTTP: https://piazza.com/class/hp4dt9k35qp33s?cid=415.
+
+\end{thebibliography}
 
 \end{document}
 
