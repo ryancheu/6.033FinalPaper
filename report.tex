@@ -356,7 +356,7 @@ For example, in Figure \ref{fig:cluster_congestion}, Clusters 1 and 4 are fully 
  
 \subsection{Progress}
 
-As it stands, Placr does not use the matrix B, which tells us how much data each VM is expected to transfer to each other VM. We are more concerned about instantaneous data transfer rates since machines can be moved so quickly and cheaply.  Occasionally, however, it is better to make sacrifices in instantaneous data transfer to ensure that a VM completes its entire job faster.  Once a VM completes its job, we can remove it from the network so that it does not take spaces that other VMs could be using.  After this machine is removed, we can place the remaining machines more optimally.
+As it stands, Placr does not use the matrix $B$, which tells us how much data each VM is expected to transfer to each other VM. We are more concerned about instantaneous data transfer rates since machines can be moved so quickly and cheaply.  Occasionally, however, it is better to make sacrifices in instantaneous data transfer to ensure that a VM completes its entire job faster.  Once a VM completes its job, we can remove it from the network so that it does not take spaces that other VMs could be using.  After this machine is removed, we can place the remaining machines more optimally.
 
 One idea we considered to fix this was to inflate the data transfer measurements from VMs that have made little progress so far.  Since our algorithm minimizes intercommunication, it would be more likely to generate a placement that is favorable to the VMs that have made little progress, allowing them to ``catch up.''  The rate of inflation is a parameter that could be tuned by testing in a real data center.
 
