@@ -33,7 +33,7 @@ This report outlines the design for Placr, a system for controlling the placemen
 
 We assume that the data center charges the user a fixed monetary cost per minute of use for each VM.  Rather than strictly minimizing job completion time or strictly minimizing total cost, Placr aims to simultaneously achieve near-minimal time and near-minimal cost.  To achieve this, Placr tries to maximize the instantaneous throughput between all VMs at each moment.
 
-Placr has two components: measurement and placement.  Measurement is mediated by periodic data transfer reports which are sent from each VM to a central machine.  Once the reports are obtained, a combination of a graph clustering algorithm and a fast paced hill-climbing algorithm determine placement. Graph clustering algorithms will place VMs such that they are close to an optimal configuration and respond to macro scale events such as large changes in occupancy.  Hill-climbing algorithms will provide quick responses to changing data transfer requirements.
+Placr has two components: measurement and placement.  Measurement is mediated by periodic data transfer reports which are sent from each VM to a central machine.  Once the reports are obtained, a combination of a graph clustering algorithm and a fast paced hill-climbing algorithm determine placement. The graph clustering algorithm will place VMs such that they are close to an optimal configuration and respond to macro scale events such as large changes in occupancy.  The hill-climbing algorithm will provide quick responses to changing data transfer requirements.
 
 \section{Design}
 
@@ -105,6 +105,10 @@ Network statistics are measured in a distributed manner and collected at the mic
 
 The reporting interval of 100 milliseconds was chosen deliberately.  Network usage in the data center changes rapidly enough that a reporting interval on the order of seconds would not provide fresh enough information to make placement decisions upon.  Conversely, a reporting interval of 10 milliseconds or less may ``miss'' important information, if the communication pattern between two VMs is bursty.
 
+At most, these reports each will take
+\[ n \cdot ( 16 \text{ bytes for ID} + 32 \text{ bytes for bytes sent}). \]
+We estimate the largest jobs will take at most 1000 VMs.  In this case, if every machine is communicating with all other machines, every 100 ms the reports will generate 45.7764 megabytes of traffic, or 457.76 Mb/s.  Since our slowest connections operate at 10 Gb/s, this is a reasonable amount of traffic.  In most cases however, the total number of bytes sent will be much lower.
+
 \begin{figure}
   \centering
 \includegraphics[scale=0.65]{measurement.png}
@@ -131,52 +135,50 @@ The communication between the micro and macro coordinators is as follows.  The m
 
 
 \subsection{Online algorithm: Micro}
-\newcommand{\VMa}{$\textit{VM}_a$}
-\newcommand{\VMb}{$\textit{VM}_b$}
+\newcommand{\VMa}{\textit{VM}_a}
+\newcommand{\VMb}{\textit{VM}_b}
 Every time a report from a VM is received, the micro coordinator attempts to move that VM, if doing so would decrease the amount of inter-group communication.
 
-If more data is being transferred between a VM (say \VMa) and an external group (say $g$) than between that VM and its own group, then it would be beneficial to move \VMa into group $g$, if there is an open slot (see Figure \ref{fig:micro-move}).  Here, and for the remainder of this section, ``between'' is bidirectional, i.e., is the sum of data sent from \VMa to group $g$ and data sent from group $g$ to \VMa.
+If more data is being transferred between a VM (say $\VMa$) and an external group (say $g$) than between that VM and its own group, then it would be beneficial to move $\VMa$ into group $g$, if there is an open slot (see Figure \ref{fig:micro-move}).  Here, and for the remainder of this section, ``between'' is bidirectional, i.e., is the sum of data sent from $\VMa$ to group $g$ and data sent from group $g$ to $\VMa$.
 
 \begin{figure}
   \centering
 \includegraphics[scale=0.65]{micro1.png}
 
- \caption{\VMb communicates with group 1 more than its own group.  If there is an open slot, \VMb should be moved to group 1.}
+ \caption{$\VMb$ communicates with group 1 more than its own group.  If there is an open slot, $\VMb$ should be moved to group 1.}
 
  \label{fig:micro-move}
  
 \end{figure}
 
-Even if group $g$ does not have any open slots, it may be beneficial to switch the location of \VMa with one of the VMs in group $g$ (see Figure \ref{fig:micro-switch}).
+Even if group $g$ does not have any open slots, it may be beneficial to switch the location of $\VMa$ with one of the VMs in group $g$ (see Figure \ref{fig:micro-switch}).
 \begin{figure}
   \centering
 \includegraphics[scale=0.65]{micro2.png}
 
- \caption{Group 1 and group 2 do not have any open slots, but it would be beneficial to switch the locations of \VMa and \VMb.}
+ \caption{Group 1 and group 2 do not have any open slots, but it would be beneficial to switch the locations of $\VMa$ and $\VMb$.}
 
  \label{fig:micro-switch}
  
 \end{figure}
 
-To implement the above possibility, the micro-coordinator keeps additional data structures.  For each group, the micro-coordinator stores a ``waiting list'' of VMs that are waiting to move into that group.  (So, there are 24 such lists.)
-
-In the illustration above, the list for group 1 contains \VMb; the list for group 2 contains \VMa.
+To implement the above possibility, the micro-coordinator keeps additional data structures.  For each group, the micro-coordinator stores a ``waiting list'' of VMs that are waiting to move into that group.  (So, there are 24 such lists.)  In the situation of Figure \ref{fig:micro-switch}, the list for group 1 contains $\VMb$, and the list for group 2 contains $\VMa$.
 
 Here is the algorithm used by the micro coordinator in detail:
 \begin{enumerate}
-  \item The micro-coordinator receives a report.  Suppose the sender is \VMa.
-  \item The micro-coordinator deletes \VMa from any of the 24 lists it is currently on, because \VMa's membership in those lists is now stale.
-  \item Based on the report, the micro coordinator computes the total number of bytes sent from \VMa to each group over the past 100 milliseconds.  Let $\texttt{group\_comm}[g]$ be the number of bytes sent from \VMa to group $g$ in the past 100 milliseconds.
-  \item Let $g_a$ denote the group in which \VMa currently resides.  For each group g, let
+  \item The micro-coordinator receives a report.  Suppose the sender is $\VMa$.
+  \item The micro-coordinator deletes $\VMa$ from any of the 24 lists it is currently on, because $\VMa$'s membership in those lists is now stale.
+  \item Based on the report, the micro coordinator computes the total number of bytes sent from $\VMa$ to each group over the past 100 milliseconds.  Let $\texttt{group\_comm}[g]$ be the number of bytes sent from $\VMa$ to group $g$ in the past 100 milliseconds.
+  \item Let $g_a$ denote the group in which $\VMa$ currently resides.  For each group g, let
     \[ \texttt{desire\_to\_transfer}[g] = \texttt{group\_comm}[g] - \texttt{group\_comm}[g_a]. \]
-    If $\texttt{desire\_to\_transfer}[g] > 0$, then \VMa is transferring more data to group $g$ than to its own group, and thus we should try to move \VMa into group $g$.
+    If $\texttt{desire\_to\_transfer}[g] > 0$, then $\VMa$ is transferring more data to group $g$ than to its own group, and thus we should try to move $\VMa$ into group $g$.
   \item For each group $g$ for which $\texttt{desire\_to\_transfer}[g] > 0$, in descending order of the magnitude of $\texttt{desire\_to\_transfer}[g]$, the micro coordinator does the following:
     \begin{enumerate}[label=(\alph{*})]
-      \item Use the \texttt{machine\_occupancy()} API call to determine whether there is an open slot in group $g$.  If so, move \VMa into group $g$.
-      \item If there are no open slots in group $g$, search through the waiting list for group $g$ to determine whether there is a VM waiting to switch into group $g_a$.  If so, switch the locations of that VM and \VMa.
+      \item Use the \texttt{machine\_occupancy()} API call to determine whether there is an open slot in group $g$.  If so, move $\VMa$ into group $g$.
+      \item If there are no open slots in group $g$, search through the waiting list for group $g$ to determine whether there is a VM waiting to switch into group $g_a$.  If so, switch the locations of that VM and $\VMa$.
     \end{enumerate}
 
-  \item If no switch or transfer has yet been made, the micro coordinator adds \VMa to the waiting list of each group $g$ for which $\texttt{desire\_to\_transfer}[g] > 0$.
+  \item If no switch or transfer has yet been made, the micro coordinator adds $\VMa$ to the waiting list of each group $g$ for which $\texttt{desire\_to\_transfer}[g] > 0$.
 \end{enumerate}
 
 
